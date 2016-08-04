@@ -1,65 +1,152 @@
 package main
 
 import (
+	"bytes"
+	"encoding/gob"
 	"errors"
-	"flag"
 	"log"
-	"net"
 	"os"
-	"syscall"
 
 	"github.com/influxdata/kapacitor/udf"
 	"github.com/influxdata/kapacitor/udf/agent"
 )
 
-// Mirrors all points it receives back to Kapacitor
-type mirrorHandler struct {
+// An Agent.Handler that computes a moving average of the data it receives.
+type avgHandler struct {
+	field  string
+	uptime int
+	as     string
+	size   int
+	state  map[string]*avgState
+
 	agent *agent.Agent
 }
 
-func newMirrorHandler(agent *agent.Agent) *mirrorHandler {
-	return &mirrorHandler{agent: agent}
+// The state required to compute the moving average.
+type avgState struct {
+	Size   int
+	Window []float64
+	Avg    float64
+}
+
+// Update the moving average with the next data point.
+func (a *avgState) update(value float64) float64 {
+	l := len(a.Window)
+	if a.Size == l {
+		a.Avg += value/float64(l) - a.Window[0]/float64(l)
+		a.Window = a.Window[1:]
+	} else {
+		a.Avg = (value + float64(l)*a.Avg) / float64(l+1)
+	}
+	a.Window = append(a.Window, value)
+	return a.Avg
+}
+
+func newMovingAvgHandler(a *agent.Agent) *avgHandler {
+	return &avgHandler{
+		state: make(map[string]*avgState),
+		as:    "avg",
+		agent: a,
+	}
 }
 
 // Return the InfoResponse. Describing the properties of this UDF agent.
-func (*mirrorHandler) Info() (*udf.InfoResponse, error) {
+func (a *avgHandler) Info() (*udf.InfoResponse, error) {
 	info := &udf.InfoResponse{
 		Wants:    udf.EdgeType_STREAM,
 		Provides: udf.EdgeType_STREAM,
-		Options:  map[string]*udf.OptionInfo{},
+		Options: map[string]*udf.OptionInfo{
+			"field":  {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
+			"uptime": {ValueTypes: []udf.ValueType{udf.ValueType_INT}},
+			"size":   {ValueTypes: []udf.ValueType{udf.ValueType_INT}},
+			"as":     {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
+		},
 	}
 	return info, nil
 }
 
 // Initialze the handler based of the provided options.
-func (*mirrorHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
+func (a *avgHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
 	init := &udf.InitResponse{
 		Success: true,
 		Error:   "",
 	}
+	for _, opt := range r.Options {
+		switch opt.Name {
+		case "field":
+			a.field = opt.Values[0].Value.(*udf.OptionValue_StringValue).StringValue
+		case "size":
+			a.size = int(opt.Values[0].Value.(*udf.OptionValue_IntValue).IntValue)
+		case "as":
+			a.as = opt.Values[0].Value.(*udf.OptionValue_StringValue).StringValue
+		}
+	}
+
+	if a.field == "" {
+		init.Success = false
+		init.Error += " must supply field"
+	}
+	if a.size == 0 {
+		init.Success = false
+		init.Error += " must supply window size"
+	}
+	if a.as == "" {
+		init.Success = false
+		init.Error += " invalid as name provided"
+	}
+
 	return init, nil
 }
 
 // Create a snapshot of the running state of the process.
-func (*mirrorHandler) Snaphost() (*udf.SnapshotResponse, error) {
-	return &udf.SnapshotResponse{}, nil
-}
+func (a *avgHandler) Snaphost() (*udf.SnapshotResponse, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	enc.Encode(a.state)
 
-// Restore a previous snapshot.
-func (*mirrorHandler) Restore(req *udf.RestoreRequest) (*udf.RestoreResponse, error) {
-	return &udf.RestoreResponse{
-		Success: true,
+	return &udf.SnapshotResponse{
+		Snapshot: buf.Bytes(),
 	}, nil
 }
 
-// Start working with the next batch
-func (*mirrorHandler) BeginBatch(begin *udf.BeginBatch) error {
+// Restore a previous snapshot.
+func (a *avgHandler) Restore(req *udf.RestoreRequest) (*udf.RestoreResponse, error) {
+	buf := bytes.NewReader(req.Snapshot)
+	dec := gob.NewDecoder(buf)
+	err := dec.Decode(&a.state)
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	return &udf.RestoreResponse{
+		Success: err == nil,
+		Error:   msg,
+	}, nil
+}
+
+// This handler does not do batching
+func (a *avgHandler) BeginBatch(*udf.BeginBatch) error {
 	return errors.New("batching not supported")
 }
 
-func (h *mirrorHandler) Point(p *udf.Point) error {
-	// Send back the point we just received
-	h.agent.Responses <- &udf.Response{
+// Receive a point and compute the average.
+// Send a response with the average value.
+func (a *avgHandler) Point(p *udf.Point) error {
+	// Update the moving average.
+	value := p.FieldsDouble[a.field]
+	state := a.state[p.Group]
+	if state == nil {
+		state = &avgState{Size: a.size}
+		a.state[p.Group] = state
+	}
+	avg := state.update(value)
+
+	// Re-use the existing point so we keep the same tags etc.
+	p.FieldsDouble = map[string]float64{a.as: avg}
+	p.FieldsInt = nil
+	p.FieldsString = nil
+	// Send point with average value.
+	a.agent.Responses <- &udf.Response{
 		Message: &udf.Response_Point{
 			Point: p,
 		},
@@ -67,64 +154,25 @@ func (h *mirrorHandler) Point(p *udf.Point) error {
 	return nil
 }
 
-func (*mirrorHandler) EndBatch(end *udf.EndBatch) error {
-	return nil
+// This handler does not do batching
+func (a *avgHandler) EndBatch(*udf.EndBatch) error {
+	return errors.New("batching not supported")
 }
 
 // Stop the handler gracefully.
-func (h *mirrorHandler) Stop() {
-	close(h.agent.Responses)
+func (a *avgHandler) Stop() {
+	close(a.agent.Responses)
 }
-
-type accepter struct {
-	count int64
-}
-
-// Create a new agent/handler for each new connection.
-// Count and log each new connection and termination.
-func (acc *accepter) Accept(conn net.Conn) {
-	count := acc.count
-	acc.count++
-	a := agent.New(conn, conn)
-	h := newMirrorHandler(a)
-	a.Handler = h
-
-	log.Println("Starting agent for connection", count)
-	a.Start()
-	go func() {
-		err := a.Wait()
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Printf("Agent for connection %d finished", count)
-	}()
-}
-
-var socketPath = flag.String("socket", "/tmp/mirror.sock", "Where to create the unix socket")
 
 func main() {
-	flag.Parse()
+	a := agent.New(os.Stdin, os.Stdout)
+	h := newMovingAvgHandler(a)
+	a.Handler = h
 
-	// Create unix socket
-	addr, err := net.ResolveUnixAddr("unix", *socketPath)
+	log.Println("Starting agent")
+	a.Start()
+	err := a.Wait()
 	if err != nil {
 		log.Fatal(err)
 	}
-	l, err := net.ListenUnix("unix", addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Create server that listens on the socket
-	s := agent.NewServer(l, &accepter{})
-
-	// Setup signal handler to stop Server on various signals
-	s.StopOnSignals(os.Interrupt, syscall.SIGTERM)
-
-	log.Println("Server listening on", addr.String())
-	err = s.Serve()
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Server stopped")
 }
