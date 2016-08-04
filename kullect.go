@@ -14,7 +14,7 @@ import (
 // An Agent.Handler that computes a moving average of the data it receives.
 type avgHandler struct {
 	field  string
-	uptime int
+	uptime string
 	as     string
 	size   int
 	state  map[string]*avgState
@@ -57,7 +57,7 @@ func (a *avgHandler) Info() (*udf.InfoResponse, error) {
 		Provides: udf.EdgeType_STREAM,
 		Options: map[string]*udf.OptionInfo{
 			"field":  {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
-			"uptime": {ValueTypes: []udf.ValueType{udf.ValueType_INT}},
+			"uptime": {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
 			"size":   {ValueTypes: []udf.ValueType{udf.ValueType_INT}},
 			"as":     {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
 		},
