@@ -24,7 +24,6 @@ stream
         .uptime('uptime.value')
         .size(100)
         .as('cost')
-    |httpOut('movingaverage')
     |influxDBOut()
         .database('k8s')
         .retentionPolicy('default')
