@@ -12,18 +12,23 @@ Add to Kapacitor Config File
 ```
 Create a Kapacitor Tick File
 ```
+var uptime = stream
+    |from()
+        .measurement('uptime')
 stream
-    // Select just the cpu measurement from our k8s database.
+    // Select just the cpu measurement from our example database.
     |from()
         .measurement('cpu/usage')
     @kullect()
         .field('value')
+        .uptime('uptime.value')
         .size(100)
         .as('cost')
-    |httpOut('cpu_cost')
+    |httpOut('movingaverage')
     |influxDBOut()
         .database('k8s')
         .retentionPolicy('default')
         .measurement('cpu/usage')
         .tag('kapacitor', 'true')
+        .tag('version', '0.2')
 ```
