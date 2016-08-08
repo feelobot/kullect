@@ -1,13 +1,13 @@
 var uptime = stream
     |from()
-        .measurement('uptime')
+        .measurement('uptime.value')
 stream
     // Select just the cpu measurement from our example database.
     |from()
-        .measurement('cpu/usage')
+        .measurement('cpu/usage_rate:')
     @kullect()
         .field('value')
-        .uptime('uptime.value')
+        .uptime('uptime')
         .size(100)
         .as('cost')
     |httpOut('movingaverage')

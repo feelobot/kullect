@@ -11,6 +11,15 @@ import (
 	"github.com/influxdata/kapacitor/udf/agent"
 )
 
+// A function to get the summ of a slice
+func sum(nums ...float64) float64 {
+	total := 0.0
+	for _, num := range nums {
+		total += num
+	}
+	return total
+}
+
 // An Agent.Handler that computes a moving average of the data it receives.
 type avgHandler struct {
 	field  string
@@ -32,12 +41,7 @@ type avgState struct {
 // Update the moving average with the next data point.
 func (a *avgState) update(value float64) float64 {
 	l := len(a.Window)
-	if a.Size == l {
-		a.Avg += value/float64(l) - a.Window[0]/float64(l)
-		a.Window = a.Window[1:]
-	} else {
-		a.Avg = (value + float64(l)*a.Avg) / float64(l+1)
-	}
+	a.Avg = sum(a.Window...) / float64(l)
 	a.Window = append(a.Window, value)
 	return a.Avg
 }
@@ -75,6 +79,8 @@ func (a *avgHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
 		switch opt.Name {
 		case "field":
 			a.field = opt.Values[0].Value.(*udf.OptionValue_StringValue).StringValue
+		case "uptime":
+			a.uptime = opt.Values[0].Value.(*udf.OptionValue_StringValue).StringValue
 		case "size":
 			a.size = int(opt.Values[0].Value.(*udf.OptionValue_IntValue).IntValue)
 		case "as":
@@ -85,6 +91,10 @@ func (a *avgHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
 	if a.field == "" {
 		init.Success = false
 		init.Error += " must supply field"
+	}
+	if a.uptime == "" {
+		init.Success = false
+		init.Error += " must supply field uptime"
 	}
 	if a.size == 0 {
 		init.Success = false
