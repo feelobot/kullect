@@ -11,51 +11,36 @@ import (
 	"github.com/influxdata/kapacitor/udf/agent"
 )
 
-// A function to get the summ of a slice
-func sum(nums ...float64) float64 {
-	total := 0.0
-	for _, num := range nums {
-		total += num
-	}
-	return total
-}
-
 // An Agent.Handler that computes a moving average of the data it receives.
-type avgHandler struct {
+type costHandler struct {
 	field  string
 	uptime string
 	as     string
 	size   int
-	state  map[string]*avgState
-
-	agent *agent.Agent
-}
-
-// The state required to compute the moving average.
-type avgState struct {
-	Size   int
-	Window []float64
-	Avg    float64
 }
 
 // Update the moving average with the next data point.
 func (a *avgState) update(value float64) float64 {
 	l := len(a.Window)
-	a.Avg = sum(a.Window...) / float64(l)
+	if a.Size == l {
+		//a.Avg += value/float64(l) - a.Window[0]/float64(l)
+		//a.Window = a.Window[1:]
+	} else {
+		a.Avg = (value + float64(l)*a.Avg) / float64(l+1)
+	}
 	a.Window = append(a.Window, value)
 	return a.Avg
 }
 
-func newMovingAvgHandler(a *agent.Agent) *avgHandler {
-	return &avgHandler{
-		state: make(map[string]*avgState),
+func newMovingAvgHandler(a *agent.Agent) *costHandler {
+	return &costHandler{
 		as:    "avg",
 		agent: a,
 	}
 }
 
 // Return the InfoResponse. Describing the properties of this UDF agent.
-func (a *avgHandler) Info() (*udf.InfoResponse, error) {
+func (a *costHandler) Info() (*udf.InfoResponse, error) {
 	info := &udf.InfoResponse{
 		Wants:    udf.EdgeType_STREAM,
 		Provides: udf.EdgeType_STREAM,
@@ -70,7 +55,7 @@ func (a *avgHandler) Info() (*udf.InfoResponse, error) {
 }
 
 // Initialze the handler based of the provided options.
-func (a *avgHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
+func (a *costHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
 	init := &udf.InitResponse{
 		Success: true,
 		Error:   "",
@@ -109,50 +94,31 @@ func (a *avgHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
 }
 
 // Create a snapshot of the running state of the process.
-func (a *avgHandler) Snaphost() (*udf.SnapshotResponse, error) {
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	enc.Encode(a.state)
-
-	return &udf.SnapshotResponse{
-		Snapshot: buf.Bytes(),
-	}, nil
+func (a *costHandler) Snaphost() (*udf.SnapshotResponse, error) {
+	return &udf.SnapshotResponse{}, nil
 }
 
 // Restore a previous snapshot.
-func (a *avgHandler) Restore(req *udf.RestoreRequest) (*udf.RestoreResponse, error) {
-	buf := bytes.NewReader(req.Snapshot)
-	dec := gob.NewDecoder(buf)
-	err := dec.Decode(&a.state)
-	msg := ""
-	if err != nil {
-		msg = err.Error()
-	}
+func (a *costHandler) Restore(req *udf.RestoreRequest) (*udf.RestoreResponse, error) {
 	return &udf.RestoreResponse{
-		Success: err == nil,
-		Error:   msg,
+		Success: true,
 	}, nil
 }
 
 // This handler does not do batching
-func (a *avgHandler) BeginBatch(*udf.BeginBatch) error {
+func (a *costHandler) BeginBatch(*udf.BeginBatch) error {
 	return errors.New("batching not supported")
 }
 
 // Receive a point and compute the average.
 // Send a response with the average value.
-func (a *avgHandler) Point(p *udf.Point) error {
+func (a *costHandler) Point(p *udf.Point) error {
 	// Update the moving average.
-	value := p.FieldsDouble[a.field]
-	state := a.state[p.Group]
-	if state == nil {
-		state = &avgState{Size: a.size}
-		a.state[p.Group] = state
-	}
-	avg := state.update(value)
-
 	// Re-use the existing point so we keep the same tags etc.
-	p.FieldsDouble = map[string]float64{a.as: avg}
+	total_millicores :=  544000
+	hourly_rate :=  33.46
+	cost :=  
+	p.FieldsDouble = map[string]float64{a.as: cost}
 	p.FieldsInt = nil
 	p.FieldsString = nil
 	// Send point with average value.
@@ -165,12 +131,12 @@ func (a *avgHandler) Point(p *udf.Point) error {
 }
 
 // This handler does not do batching
-func (a *avgHandler) EndBatch(*udf.EndBatch) error {
+func (a *costHandler) EndBatch(*udf.EndBatch) error {
 	return errors.New("batching not supported")
 }
 
 // Stop the handler gracefully.
-func (a *avgHandler) Stop() {
+func (a *costHandler) Stop() {
 	close(a.agent.Responses)
 }
 
