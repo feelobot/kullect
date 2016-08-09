@@ -1,42 +1,25 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
 	"errors"
-	"log"
-	"os"
-
 	"github.com/influxdata/kapacitor/udf"
 	"github.com/influxdata/kapacitor/udf/agent"
+	"log"
+	"os"
+	"strconv"
 )
 
-// An Agent.Handler that computes a moving average of the data it receives.
+// An Agent.Handler
 type costHandler struct {
 	field  string
 	uptime string
 	as     string
 	size   int
+	agent  *agent.Agent
 }
 
-// Update the moving average with the next data point.
-func (a *avgState) update(value float64) float64 {
-	l := len(a.Window)
-	if a.Size == l {
-		//a.Avg += value/float64(l) - a.Window[0]/float64(l)
-		//a.Window = a.Window[1:]
-	} else {
-		a.Avg = (value + float64(l)*a.Avg) / float64(l+1)
-	}
-	a.Window = append(a.Window, value)
-	return a.Avg
-}
-
-func newMovingAvgHandler(a *agent.Agent) *costHandler {
-	return &costHandler{
-		as:    "avg",
-		agent: a,
-	}
+func newCostHandler(a *agent.Agent) *costHandler {
+	return &costHandler{agent: a}
 }
 
 // Return the InfoResponse. Describing the properties of this UDF agent.
@@ -110,14 +93,17 @@ func (a *costHandler) BeginBatch(*udf.BeginBatch) error {
 	return errors.New("batching not supported")
 }
 
-// Receive a point and compute the average.
-// Send a response with the average value.
+// Compute Cost
 func (a *costHandler) Point(p *udf.Point) error {
 	// Update the moving average.
 	// Re-use the existing point so we keep the same tags etc.
-	total_millicores :=  544000
-	hourly_rate :=  33.46
-	cost :=  
+	total_millicores := 544000.00
+	hourly_rate := 33.46
+	cpu_usage := p.FieldsDouble[a.field]
+	uptime, _ := strconv.ParseFloat(p.FieldsString["uptime"], 64)
+	hourly_uptime := uptime / 36000000
+	cost := (hourly_uptime * hourly_rate) * (cpu_usage / total_millicores)
+	log.Println("CPU: ", cpu_usage)
 	p.FieldsDouble = map[string]float64{a.as: cost}
 	p.FieldsInt = nil
 	p.FieldsString = nil
@@ -142,7 +128,7 @@ func (a *costHandler) Stop() {
 
 func main() {
 	a := agent.New(os.Stdin, os.Stdout)
-	h := newMovingAvgHandler(a)
+	h := newCostHandler(a)
 	a.Handler = h
 
 	log.Println("Starting agent")
