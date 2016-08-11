@@ -6,7 +6,7 @@ import (
 	"github.com/influxdata/kapacitor/udf/agent"
 	"log"
 	"os"
-	"strconv"
+	_ "strconv"
 )
 
 // An Agent.Handler
@@ -95,15 +95,16 @@ func (a *costHandler) BeginBatch(*udf.BeginBatch) error {
 
 // Compute Cost
 func (a *costHandler) Point(p *udf.Point) error {
-	// Update the moving average.
 	// Re-use the existing point so we keep the same tags etc.
+	//log.Printf("%+v\n", p)
 	total_millicores := 544000.00
 	hourly_rate := 33.46
-	cpu_usage := p.FieldsDouble[a.field]
-	uptime, _ := strconv.ParseFloat(p.FieldsString["uptime"], 64)
+	//cpu_usage := 2259.0
+	cpu_usage := float64(p.FieldsInt["value"])
+	//uptime, _ := strconv.ParseFloat(p.FieldsString["uptime"], 64)
+	uptime := 15964787991.00
 	hourly_uptime := uptime / 36000000
 	cost := (hourly_uptime * hourly_rate) * (cpu_usage / total_millicores)
-	log.Println("CPU: ", cpu_usage)
 	p.FieldsDouble = map[string]float64{a.as: cost}
 	p.FieldsInt = nil
 	p.FieldsString = nil
