@@ -1,19 +1,21 @@
 var uptime = stream
     |from()
-        .measurement('uptime.value')
-stream
-    // Select just the cpu measurement from our example database.
+        .measurement('uptime')
+        .groupBy('pod_name','namespace_name','labels')
+
+var usage = stream
     |from()
-        .measurement('cpu/usage_rate:')
+        .measurement('cpu/usage_rate')
+        .groupBy('pod_name','namespace_name','labels')
+usage
+    |join(uptime)
+        .as('cpu','uptime')
+
     @kullect()
-        .field('value')
-        .uptime('uptime')
-        .size(100)
-        .as('cost')
-    |httpOut('movingaverage')
+        .as('value')
     |influxDBOut()
         .database('k8s')
         .retentionPolicy('default')
-        .measurement('cpu/usage')
+        .measurement('cpu/cost')
         .tag('kapacitor', 'true')
         .tag('version', '0.2')

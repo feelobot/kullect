@@ -11,11 +11,8 @@ import (
 
 // An Agent.Handler
 type costHandler struct {
-	field  string
-	uptime string
-	as     string
-	size   int
-	agent  *agent.Agent
+	as    string
+	agent *agent.Agent
 }
 
 func newCostHandler(a *agent.Agent) *costHandler {
@@ -28,10 +25,7 @@ func (a *costHandler) Info() (*udf.InfoResponse, error) {
 		Wants:    udf.EdgeType_STREAM,
 		Provides: udf.EdgeType_STREAM,
 		Options: map[string]*udf.OptionInfo{
-			"field":  {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
-			"uptime": {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
-			"size":   {ValueTypes: []udf.ValueType{udf.ValueType_INT}},
-			"as":     {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
+			"as": {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
 		},
 	}
 	return info, nil
@@ -45,29 +39,11 @@ func (a *costHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
 	}
 	for _, opt := range r.Options {
 		switch opt.Name {
-		case "field":
-			a.field = opt.Values[0].Value.(*udf.OptionValue_StringValue).StringValue
-		case "uptime":
-			a.uptime = opt.Values[0].Value.(*udf.OptionValue_StringValue).StringValue
-		case "size":
-			a.size = int(opt.Values[0].Value.(*udf.OptionValue_IntValue).IntValue)
 		case "as":
 			a.as = opt.Values[0].Value.(*udf.OptionValue_StringValue).StringValue
 		}
 	}
 
-	if a.field == "" {
-		init.Success = false
-		init.Error += " must supply field"
-	}
-	if a.uptime == "" {
-		init.Success = false
-		init.Error += " must supply field uptime"
-	}
-	if a.size == 0 {
-		init.Success = false
-		init.Error += " must supply window size"
-	}
 	if a.as == "" {
 		init.Success = false
 		init.Error += " invalid as name provided"
@@ -96,13 +72,10 @@ func (a *costHandler) BeginBatch(*udf.BeginBatch) error {
 // Compute Cost
 func (a *costHandler) Point(p *udf.Point) error {
 	// Re-use the existing point so we keep the same tags etc.
-	//log.Printf("%+v\n", p)
 	total_millicores := 544000.00
 	hourly_rate := 33.46
-	//cpu_usage := 2259.0
-	cpu_usage := float64(p.FieldsInt["value"])
-	//uptime, _ := strconv.ParseFloat(p.FieldsString["uptime"], 64)
-	uptime := 15964787991.00
+	cpu_usage := float64(p.FieldsInt["cpu.value"])
+	uptime := float64(p.FieldsInt["uptime.value"])
 	hourly_uptime := uptime / 36000000
 	cost := (hourly_uptime * hourly_rate) * (cpu_usage / total_millicores)
 	p.FieldsDouble = map[string]float64{a.as: cost}
