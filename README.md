@@ -15,19 +15,22 @@ Create a Kapacitor Tick File
 var uptime = stream
     |from()
         .measurement('uptime')
-stream
-    // Select just the cpu measurement from our example database.
+        .groupBy('pod_name','namespace_name','labels')
+
+var usage = stream
     |from()
-        .measurement('cpu/usage')
+        .measurement('cpu/usage_rate')
+        .groupBy('pod_name','namespace_name','labels')
+usage
+    |join(uptime)
+        .as('cpu','uptime')
+
     @kullect()
-        .field('value')
-        .uptime('uptime.value')
-        .size(100)
-        .as('cost')
+        .as('value')
     |influxDBOut()
         .database('k8s')
         .retentionPolicy('default')
-        .measurement('cpu/usage')
+        .measurement('cpu/cost')
         .tag('kapacitor', 'true')
         .tag('version', '0.2')
 ```
