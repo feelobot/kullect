@@ -3,19 +3,24 @@ var uptime = stream
         .measurement('uptime')
         .groupBy('pod_name','namespace_name','labels')
 
-var usage = stream
+var cpu = stream
     |from()
         .measurement('cpu/usage_rate')
         .groupBy('pod_name','namespace_name','labels')
-usage
-    |join(uptime)
-        .as('cpu','uptime')
 
+var memory = stream
+    |from()
+        .measurement('memory/usage')
+        .groupBy('pod_name','namespace_name','labels')
+uptime
+    |join(cpu,memory)
+        .as('cpu','uptime','memory')
     @kullect()
-        .as('value')
+        .total_cpu(544000)
+        .hourly_cost(33.46)
+        .total_memory(2293760)
     |influxDBOut()
         .database('k8s')
         .retentionPolicy('default')
-        .measurement('cpu/cost')
+        .measurement('kullected')
         .tag('kapacitor', 'true')
-        .tag('version', '0.2')
