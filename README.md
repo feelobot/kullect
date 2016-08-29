@@ -15,7 +15,7 @@ Kapacitor UDF's to Analyze Service Costs in Kubernetes
             timeout = "10s"
 ```
 
-3. Add the tick file
+3. Add the tick file included here
 
 4. Define and enable the tick file
   ```
@@ -29,4 +29,4 @@ Kapacitor UDF's to Analyze Service Costs in Kubernetes
 5. Validate the tick is working
   ```
   kapacitor show cpu_alert
-  ```
+  ``
