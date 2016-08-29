@@ -1,36 +1,32 @@
 # kullect
 Kapacitor UDF's to Analyze Service Costs in Kubernetes
 
-Add to Kapacitor Config File
+### Setup
+
+1. Download binary from releases
+
+2. Add to Kapacitor Config File
 ```
 [udf]
   [udf.functions]
   [udf.functions.kullect]
-            prog = "./kullect"
+            prog = "path/to/kullect/binary"
             args = []
             timeout = "10s"
 ```
-Create a Kapacitor Tick File
-```
-var uptime = stream
-    |from()
-        .measurement('uptime')
-        .groupBy('pod_name','namespace_name','labels')
 
-var usage = stream
-    |from()
-        .measurement('cpu/usage_rate')
-        .groupBy('pod_name','namespace_name','labels')
-usage
-    |join(uptime)
-        .as('cpu','uptime')
+3. Add the tick file included here
 
-    @kullect()
-        .as('value')
-    |influxDBOut()
-        .database('k8s')
-        .retentionPolicy('default')
-        .measurement('cpu/cost')
-        .tag('kapacitor', 'true')
-        .tag('version', '0.2')
-```
+4. Define and enable the tick file
+  ```
+  kapacitor define kullector \
+    -tick kullect.tick \
+    -type stream \
+    -dbrp k8s.default 
+  kapacitor enable cpu_alert
+  ```
+
+5. Validate the tick is working
+  ```
+  kapacitor show cpu_alert
+  ``

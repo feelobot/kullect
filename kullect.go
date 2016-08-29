@@ -11,8 +11,10 @@ import (
 
 // An Agent.Handler
 type costHandler struct {
-	as    string
-	agent *agent.Agent
+	hourly_cost  int
+	total_cpu    int
+	total_memory int
+	agent        *agent.Agent
 }
 
 func newCostHandler(a *agent.Agent) *costHandler {
@@ -25,7 +27,9 @@ func (a *costHandler) Info() (*udf.InfoResponse, error) {
 		Wants:    udf.EdgeType_STREAM,
 		Provides: udf.EdgeType_STREAM,
 		Options: map[string]*udf.OptionInfo{
-			"as": {ValueTypes: []udf.ValueType{udf.ValueType_STRING}},
+			"total_cpu":    {ValueTypes: []udf.ValueType{udf.ValueType_INT}},
+			"total_memory": {ValueTypes: []udf.ValueType{udf.ValueType_INT}},
+			"hourly_cost":  {ValueTypes: []udf.ValueType{udf.ValueType_DOUBLE}},
 		},
 	}
 	return info, nil
@@ -39,16 +43,27 @@ func (a *costHandler) Init(r *udf.InitRequest) (*udf.InitResponse, error) {
 	}
 	for _, opt := range r.Options {
 		switch opt.Name {
-		case "as":
-			a.as = opt.Values[0].Value.(*udf.OptionValue_StringValue).StringValue
+		case "hourly_cost":
+			a.hourly_cost = int(opt.Values[0].Value.(*udf.OptionValue_DoubleValue).DoubleValue)
+		case "total_cpu":
+			a.total_cpu = int(opt.Values[0].Value.(*udf.OptionValue_IntValue).IntValue)
+		case "total_memory":
+			a.total_memory = int(opt.Values[0].Value.(*udf.OptionValue_IntValue).IntValue)
 		}
 	}
 
-	if a.as == "" {
+	if a.hourly_cost == 0.0 {
 		init.Success = false
-		init.Error += " invalid as name provided"
+		init.Error += " must supply the hourly cost of your entire kubernetes cluster"
 	}
-
+	if a.total_cpu == 0 {
+		init.Success = false
+		init.Error += " must supply the total available millicores in your cluster"
+	}
+	if a.total_memory == 0 {
+		init.Success = false
+		init.Error += " must supply the total available memory  in megabytes from your cluster"
+	}
 	return init, nil
 }
 
@@ -72,13 +87,14 @@ func (a *costHandler) BeginBatch(*udf.BeginBatch) error {
 // Compute Cost
 func (a *costHandler) Point(p *udf.Point) error {
 	// Re-use the existing point so we keep the same tags etc.
-	total_millicores := 544000.00
-	hourly_rate := 33.46
 	cpu_usage := float64(p.FieldsInt["cpu.value"])
+	memory_usage := float64(p.FieldsInt["memory.value"])
 	uptime := float64(p.FieldsInt["uptime.value"])
 	hourly_uptime := uptime / 36000000
-	cost := (hourly_uptime * hourly_rate) * (cpu_usage / total_millicores)
-	p.FieldsDouble = map[string]float64{a.as: cost}
+	uptime_cost := hourly_uptime * float64(a.hourly_cost)
+	cpu_cost := uptime_cost * (cpu_usage / float64(a.total_cpu))
+	memory_cost := uptime_cost * (memory_usage / float64(a.total_memory))
+	p.FieldsDouble = map[string]float64{"cpu_cost": cpu_cost, "memory_cost": memory_cost}
 	p.FieldsInt = nil
 	p.FieldsString = nil
 	// Send point with average value.
