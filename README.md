@@ -24,10 +24,10 @@ Kapacitor UDF's to Analyze Service Costs in Kubernetes
     -tick kullect.tick \
     -type stream \
     -dbrp k8s.default 
-  kapacitor enable cpu_alert
+  kapacitor enable kullector
   ```
 
 5. Validate the tick is working
   ```
-  kapacitor show cpu_alert
+  kapacitor show kullector
   ``
