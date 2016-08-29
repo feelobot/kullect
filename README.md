@@ -6,16 +6,17 @@ Kapacitor UDF's to Analyze Service Costs in Kubernetes
 1. Download binary from releases
 
 2. Add to Kapacitor Config File
-```
-[udf]
-  [udf.functions]
-  [udf.functions.kullect]
+  ```
+  [udf]
+    [udf.functions]
+    [udf.functions.kullect]
             prog = "path/to/kullect/binary"
             args = []
             timeout = "10s"
-```
+  ```
 
 3. Add the tick file included here
+  * Change the values for **total_cpu**, **hourly_cost**, and **total_memory**
 
 4. Define and enable the tick file
   ```
