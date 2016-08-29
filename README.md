@@ -30,4 +30,4 @@ Kapacitor UDF's to Analyze Service Costs in Kubernetes
 5. Validate the tick is working
   ```
   kapacitor show kullector
-  ``
+  ```
