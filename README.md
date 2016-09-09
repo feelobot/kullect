@@ -1,6 +1,8 @@
 # kullect
 Kapacitor UDF's to Analyze Service Costs in Kubernetes
 
+Slides: https://docs.google.com/presentation/d/16oHN1AunL4PGUfRJOcn9DmTn2RP8kI65CMZXsEAoPNA/edit?usp=sharing
+
 ### Setup
 
 1. Download binary from releases
